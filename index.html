@@ -37,12 +37,90 @@ button{border:0;border-radius:8px;padding:12px 16px;font-weight:700;cursor:point
 .waiter{border:1px solid var(--border);padding:12px;border-radius:10px;margin-bottom:10px}.waiter-name{font-weight:800;margin-bottom:8px}.waiter-actions{display:flex;gap:7px}.waiter-actions button{padding:8px 10px;font-size:.78rem}
 .empty{text-align:center;color:var(--muted);font-size:.85rem;padding:28px 8px}.room-top{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}.pill{background:#e8f1ff;color:var(--blue);padding:7px 10px;border-radius:20px;font-size:.78rem;font-weight:800}
 footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-size:.85rem}
+#fbBootStatus{display:none;position:sticky;top:0;z-index:999;background:#fff8e8;border-bottom:1px solid #efd18a;color:#7a5b00;text-align:center;font-size:.82rem;font-weight:700;padding:9px 12px}
+#fbBootStatus.fb-boot-error{background:#fdeaea;border-bottom-color:#e5a3a3;color:#a51f1f}
+body.fb-loading .dashboard-tile,body.fb-loading button:not(#fbRetryBtn){opacity:.55;pointer-events:none}
 @media(max-width:600px){.dashboard-choice{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.dashboard-tile{padding:16px 8px}.dashboard-tile .tile-icon{font-size:2rem}.dashboard-tile h2{font-size:1.05rem}.dashboard-tile p{font-size:.78rem}}
 @media(max-width:900px){.grid,.meeting-layout{grid-template-columns:1fr}.meeting{height:520px}.waiting{order:-1}}
 </style>
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-  import {
+  // ---------------------------------------------------------------------
+  // RESILIENT FIREBASE BOOTSTRAP
+  //
+  // Everything Firebase-related used to load via top-level static imports.
+  // On a slow/flaky connection (seen in the field: ~2.5 KB/s), those imports
+  // can still be in flight when the rest of the page has already rendered
+  // and its buttons are tappable — any tap in that window threw a raw,
+  // uncatchable "Cannot read properties of undefined" error and made it
+  // LOOK like a valid code had stopped working, when really the app just
+  // wasn't finished loading yet.
+  //
+  // Fix: load the Firebase modules dynamically, with automatic retries and
+  // a visible status banner, and never leave window.firebaseApi in a
+  // half-set state. window.firebaseReady only becomes true once EVERYTHING
+  // below has succeeded. Every user-facing action elsewhere in this app is
+  // required to await ensureFirebaseReady() first (see the classic
+  // <script> below) instead of assuming Firebase is already up.
+  // ---------------------------------------------------------------------
+  const FIREBASE_VERSION = '12.1.0';
+  const firebaseConfig = {
+    apiKey: "AIzaSyAazmoaEKQzdF9rXh7rPDNocml6lduhcB4",
+    authDomain: "ct-e-school-solutions.firebaseapp.com",
+    projectId: "ct-e-school-solutions",
+    storageBucket: "ct-e-school-solutions.firebasestorage.app",
+    messagingSenderId: "710981788315",
+    appId: "1:710981788315:web:d6c159734aa3cca3791c3e"
+  };
+
+  window.firebaseReady = false;
+  window.firebaseInitError = null;
+
+  function setBootStatus(text, isError){
+    const el = document.getElementById('fbBootStatus');
+    if(!el) return;
+    if(!text){ el.style.display='none'; el.textContent=''; return; }
+    el.textContent = text;
+    el.style.display = 'block';
+    el.classList.toggle('fb-boot-error', !!isError);
+  }
+  window.setFbBootStatus = setBootStatus;
+
+  async function importWithRetry(url, maxAttempts=6){
+    let lastErr;
+    for(let attempt=1; attempt<=maxAttempts; attempt++){
+      try{
+        return await import(/* @vite-ignore */ url);
+      }catch(err){
+        lastErr = err;
+        console.warn(`CT-SMART: failed to load ${url} (attempt ${attempt}/${maxAttempts})`, err);
+        if(attempt < maxAttempts){
+          setBootStatus(`Connecting to CT-SMART EDUC… (attempt ${attempt+1}/${maxAttempts}, this can take a while on a slow network)`);
+          await new Promise(r=>setTimeout(r, Math.min(1200*attempt, 6000)));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  (async()=>{
+    setBootStatus('Connecting to CT-SMART EDUC…');
+    let appMod, authMod, storeMod;
+    try{
+      [appMod, authMod, storeMod] = await Promise.all([
+        importWithRetry(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),
+        importWithRetry(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-auth.js`),
+        importWithRetry(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`)
+      ]);
+    }catch(err){
+      console.error('CT-SMART: Firebase modules could not be loaded:', err);
+      window.firebaseInitError = err;
+      setBootStatus('📡 Could not connect to CT-SMART EDUC. Check your internet connection and reload.', true);
+      window.dispatchEvent(new CustomEvent('ctsmart-firebase-failed'));
+      return;
+    }
+
+  const { initializeApp } = appMod;
+  const {
     getAuth,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
@@ -54,24 +132,16 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     setPersistence,
     browserLocalPersistence,
     inMemoryPersistence
-  } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-  import {
+  } = authMod;
+  const {
     getFirestore,
     doc,
     getDoc,
     setDoc,
     serverTimestamp
-  } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+  } = storeMod;
 
-  const firebaseConfig = {
-    apiKey: "AIzaSyAazmoaEKQzdF9rXh7rPDNocml6lduhcB4",
-    authDomain: "ct-e-school-solutions.firebaseapp.com",
-    projectId: "ct-e-school-solutions",
-    storageBucket: "ct-e-school-solutions.firebasestorage.app",
-    messagingSenderId: "710981788315",
-    appId: "1:710981788315:web:d6c159734aa3cca3791c3e"
-  };
-
+  try{
   const firebaseApp = initializeApp(firebaseConfig);
   window.firebaseAuth = getAuth(firebaseApp);
   window.firebaseDb = getFirestore(firebaseApp);
@@ -109,10 +179,22 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     doc,
     serverTimestamp
   };
+
+  window.firebaseReady = true;
+  setBootStatus('');
+  window.dispatchEvent(new CustomEvent('ctsmart-firebase-ready'));
+  }catch(err){
+    console.error('CT-SMART: Firebase could not be initialized:', err);
+    window.firebaseInitError = err;
+    setBootStatus('📡 Could not connect to CT-SMART EDUC. Check your internet connection and reload.', true);
+    window.dispatchEvent(new CustomEvent('ctsmart-firebase-failed'));
+  }
+  })();
 </script>
 
 </head>
-<body>
+<body class="fb-loading">
+<div id="fbBootStatus"></div>
 <header>
 <div class="container">
 <div class="brand">🎓 CT-SMART EDUC<span class="tag">Anywhere, Learn, Understand, Apply</span><span style="display:block;color:#ffffff;font-size:.72rem;margin-top:6px;letter-spacing:.5px">HOST: DADDY FAVOUR | CONTACT: 0757132542 / 0786814513 / 0755694263</span></div>
@@ -161,8 +243,8 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
   <div class="access-box" style="text-align:center">
     <div style="font-size:2.6rem;margin-bottom:6px">📡</div>
     <h2 style="margin-bottom:6px">No Network</h2>
-    <p class="info">Connect to the internet to access CT-SMART EDUC.</p>
-    <button class="blue wide" type="button" onclick="location.reload()">Retry</button>
+    <p class="info">Connect to the internet to access CT-SMART EDUC. On a slow connection this can also just mean loading is taking longer than usual — Retry will try again without losing your place.</p>
+    <button class="blue wide" type="button" onclick="retryBoot()">Retry</button>
   </div>
 </div>
 
@@ -402,6 +484,63 @@ let activeCode='';
 let isTeacher=false;
 const waiting=new Map();
 
+// ---------------------------------------------------------------------
+// FIREBASE READINESS GUARD
+//
+// Every function below that touches window.firebaseApi / firebaseAuth /
+// firebaseDb MUST await ensureFirebaseReady() first. This is what stops
+// the app from ever showing "Incorrect access code" (or crashing outright)
+// just because the Firebase SDK hadn't finished loading yet on a slow
+// connection — that used to look exactly like a locked-out or broken code,
+// when nothing was actually wrong with it.
+// ---------------------------------------------------------------------
+function ensureFirebaseReady(maxWaitMs=25000){
+  return new Promise((resolve,reject)=>{
+    const isReady=()=>window.firebaseReady && window.firebaseApi && window.firebaseAuth && window.firebaseDb;
+    if(isReady()){ resolve(); return; }
+    if(window.firebaseInitError){ reject(new Error('FIREBASE_INIT_FAILED')); return; }
+    const start=Date.now();
+    const onReady=()=>{ cleanup(); resolve(); };
+    const onFailed=()=>{ cleanup(); reject(new Error('FIREBASE_INIT_FAILED')); };
+    const iv=setInterval(()=>{
+      if(isReady()){ cleanup(); resolve(); return; }
+      if(window.firebaseInitError){ cleanup(); reject(new Error('FIREBASE_INIT_FAILED')); return; }
+      if(Date.now()-start>maxWaitMs){ cleanup(); reject(new Error('FIREBASE_TIMEOUT')); }
+    },150);
+    function cleanup(){
+      clearInterval(iv);
+      window.removeEventListener('ctsmart-firebase-ready',onReady);
+      window.removeEventListener('ctsmart-firebase-failed',onFailed);
+    }
+    window.addEventListener('ctsmart-firebase-ready',onReady);
+    window.addEventListener('ctsmart-firebase-failed',onFailed);
+  });
+}
+
+// Friendly message for the "still loading / can't reach Firebase" cases,
+// kept clearly separate from "your code was wrong" so users are never
+// told a correct code is invalid just because the app wasn't ready yet.
+function stillConnectingMessage(){
+  return '⏳ CT-SMART EDUC is still connecting (this can take a while on a slow network). Please wait a moment and try again.';
+}
+
+// Wraps a button/action handler so it: (1) waits for Firebase to be ready,
+// showing a friendly "still connecting" message and bailing out cleanly if
+// it times out or fails, instead of throwing a raw, confusing error or
+// silently treating the user as locked out; (2) only then runs the real
+// handler.
+function guarded(fn){
+  return async function(...args){
+    try{
+      await ensureFirebaseReady();
+    }catch(err){
+      alert(stillConnectingMessage());
+      return;
+    }
+    return fn.apply(this,args);
+  };
+}
+
 function makeCode(){
   const subject=document.getElementById('subject').value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,5);
   return 'CT-'+subject+'-'+Math.floor(1000+Math.random()*9000);
@@ -520,23 +659,39 @@ async function readAdminAccess(){
   return snap.data();
 }
 
+// Turns raw Firebase/Firestore errors into something a non-technical
+// Founder/Teacher/Learner can actually understand, instead of leaking
+// strings like "Missing or insufficient permissions" straight from the
+// SDK. The technical detail is still logged to the console for debugging.
+function friendlyFirebaseError(err){
+  if(isNetworkError(err)) return networkErrorMessage();
+  const code=err?.code||'';
+  const rawMessage=err?.message||'';
+  if(code==='permission-denied' || /insufficient permission/i.test(rawMessage)){
+    console.warn('CT-SMART: Firestore permission-denied —', err);
+    return "This action was blocked by the server's permission rules. This is usually a sign-in timing issue — please try again in a moment. If it keeps happening, the app's Firestore Security Rules need to be reviewed.";
+  }
+  return rawMessage || 'Something went wrong. Please try again.';
+}
+
 async function verifySharedCode(role,code){
   const clean=validateSharedCode(code,role==='teacher'?'Teacher access code':'Learner access code');
-  const data=await readPublicAccess();
-  if(!data || !data.configured) throw new Error('School access has not been configured.');
-
-  if(role==='teacher' && data.teacherLocked) throw new Error('Teacher access is currently locked.');
-  if(role==='learner' && data.learnerLocked) throw new Error('Learner access is currently locked.');
-
   const identity=SYSTEM_ROLE_IDENTITIES[role];
+
+  // Sign in FIRST, before touching Firestore at all. The code IS this
+  // system account's Firebase Authentication password, so this step needs
+  // no Firestore permissions whatsoever — only Firebase Authentication.
+  // Doing this before any Firestore read means the lock-status read just
+  // below always runs as a signed-in user rather than a signed-out one,
+  // which avoids "missing or insufficient permissions" errors that show
+  // up intermittently when Firestore Security Rules don't allow reads
+  // from a signed-out session (this was happening depending on whether the
+  // browser already had a leftover signed-in session from before).
+  let credential;
   try{
-    // The code IS this system account's Firebase Authentication password.
-    // Signing in here both verifies the code and attaches the person to the
-    // real, fixed system account — never an anonymous session.
-    const credential=await window.firebaseApi.signInWithEmailAndPassword(
+    credential=await window.firebaseApi.signInWithEmailAndPassword(
       window.firebaseAuth, identity.email, clean
     );
-    return {ok:true,role,uid:credential.user.uid};
   }catch(err){
     if(err?.code==='auth/wrong-password' || err?.code==='auth/invalid-credential' || err?.code==='auth/invalid-login-credentials'){
       throw new Error('Incorrect access code.');
@@ -544,8 +699,33 @@ async function verifySharedCode(role,code){
     if(err?.code==='auth/user-not-found'){
       throw new Error('School access has not been fully configured yet.');
     }
-    throw new Error(err?.message || 'Unable to verify access code.');
+    throw new Error(friendlyFirebaseError(err));
   }
+
+  // Lock-status check. This is a secondary, non-security-critical check —
+  // the real access boundary is the Firebase Authentication sign-in above,
+  // which already succeeded. So if this read itself fails (permissions
+  // hiccup, brief connectivity blip, etc.) we fail OPEN here rather than
+  // blocking someone who just proved they have a correct code. We only
+  // ever block for a lock that we positively confirmed is set to true.
+  try{
+    const data=await readPublicAccess();
+    if(role==='teacher' && data?.teacherLocked){
+      await window.firebaseApi.signOut(window.firebaseAuth);
+      throw new Error('Teacher access is currently locked.');
+    }
+    if(role==='learner' && data?.learnerLocked){
+      await window.firebaseApi.signOut(window.firebaseAuth);
+      throw new Error('Learner access is currently locked.');
+    }
+  }catch(err){
+    if(err.message==='Teacher access is currently locked.' || err.message==='Learner access is currently locked.'){
+      throw err;
+    }
+    console.warn(`CT-SMART: could not confirm ${role} lock status, allowing entry since sign-in already succeeded:`,err);
+  }
+
+  return {ok:true,role,uid:credential.user.uid};
 }
 
 let accessSettings={
@@ -718,14 +898,14 @@ async function initializeSchool(){
       return;
     }
     const code=err?.code ? ` (${err.code})` : '';
-    const message=err?.message || 'Activation failed.';
+    const message=friendlyFirebaseError(err);
     status.textContent=`❌ ${message}${code}`;
     alert(`CT-SMART could not be activated.\n\n${message}${code}\n\nCheck Firebase Authentication and Firestore Rules.`);
     button.disabled=false;
     button.textContent='Save & Activate CT-SMART EDUC';
   }
 }
-window.initializeSchool=initializeSchool;
+
 
 // Creates the fixed Teacher/Learner system account with the given code as
 // its password, using the SECONDARY (isolated) Firebase Auth instance. If
@@ -784,7 +964,7 @@ async function verifyTeacherAccess(){
     await verifySharedCode('teacher',document.getElementById('teacherAccessCode').value);
     hideDashboards();
     document.getElementById('teacherDashboard').style.display='block';
-  }catch(err){ alert(isNetworkError(err)?networkErrorMessage():err.message); }
+  }catch(err){ alert(friendlyFirebaseError(err)); }
 }
 
 async function verifyFounderAccess(){
@@ -799,7 +979,11 @@ async function verifyFounderAccess(){
   }catch(err){
     console.error(err);
     if(isNetworkError(err)){ alert(networkErrorMessage()); return; }
-    alert('Incorrect Founder access code or Founder account is not configured.');
+    if(err?.code==='auth/wrong-password' || err?.code==='auth/invalid-credential' || err?.code==='auth/invalid-login-credentials' || err?.code==='auth/user-not-found'){
+      alert('Incorrect Founder access code or Founder account is not configured.');
+      return;
+    }
+    alert(friendlyFirebaseError(err));
   }
 }
 
@@ -815,7 +999,7 @@ async function authenticateLearner(){
     return true;
   }catch(err){
     document.getElementById('learnerDashboard').dataset.authenticated='false';
-    alert(isNetworkError(err)?networkErrorMessage():err.message);
+    alert(friendlyFirebaseError(err));
     return false;
   }
 }
@@ -838,8 +1022,9 @@ async function loadFounderSettings(){
     accessSettings.teacherLocked=!!pub?.teacherLocked;
     accessSettings.learnerLocked=!!pub?.learnerLocked;
   }catch(err){
-    alert(err.message);
+    alert(friendlyFirebaseError(err));
   }
+
 }
 
 // Changes a Teacher or Learner system account's code (its Firebase Auth
@@ -889,7 +1074,7 @@ async function saveBothAccessCodes(){
     document.getElementById('newLearnerCode').value='';
     await loadFounderSettings();
     alert('Teacher and Learner codes have been updated for all devices.');
-  }catch(err){ alert(err?.message || 'Unable to update access codes.'); }
+  }catch(err){ alert(friendlyFirebaseError(err)); }
 }
 
 async function changeTeacherAccessCode(){
@@ -899,7 +1084,7 @@ async function changeTeacherAccessCode(){
     document.getElementById('newTeacherCode').value='';
     await loadFounderSettings();
     alert('Teacher access code updated.');
-  }catch(err){ alert(err?.message || 'Unable to update the teacher code.'); }
+  }catch(err){ alert(friendlyFirebaseError(err)); }
 }
 
 async function changeLearnerAccessCode(){
@@ -909,7 +1094,7 @@ async function changeLearnerAccessCode(){
     document.getElementById('newLearnerCode').value='';
     await loadFounderSettings();
     alert('Learner access code updated.');
-  }catch(err){ alert(err?.message || 'Unable to update the learner code.'); }
+  }catch(err){ alert(friendlyFirebaseError(err)); }
 }
 
 async function changeFounderAccessCode(){
@@ -942,7 +1127,7 @@ async function changeFounderAccessCode(){
     if(err?.code==='auth/wrong-password' || err?.code==='auth/invalid-credential'){
       alert('Your current Founder code was incorrect. Please try again.');
     }else{
-      alert(err?.message || 'Unable to update the Founder access code.');
+      alert(friendlyFirebaseError(err));
     }
   }
 }
@@ -963,7 +1148,7 @@ async function saveLocks(){
     accessSettings.learnerLocked=document.getElementById('lockLearner').checked;
     accessSettings.teacherLocked=document.getElementById('lockTeacher').checked;
     alert('Access lock settings saved in Firebase.');
-  }catch(err){ alert(err?.message || 'Unable to save access lock settings.'); }
+  }catch(err){ alert(friendlyFirebaseError(err)); }
 }
 async function lockAllUsers(){
   document.getElementById('lockTeacher').checked=true;
@@ -1036,11 +1221,48 @@ function startLearnerLesson(){
     'Account verified. Tap Connect to Live Lesson to open Google Meet.';
 }
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+// Every action that talks to Firebase gets wrapped with the readiness
+// guard here, in one place, so no entry point can ever be called before
+// Firebase has actually finished loading. This is what the onclick/onchange
+// attributes in the HTML above call.
+window.initializeSchool=guarded(initializeSchool);
+window.verifyTeacherAccess=guarded(verifyTeacherAccess);
+window.verifyFounderAccess=guarded(verifyFounderAccess);
+window.authenticateLearner=guarded(authenticateLearner);
+window.saveBothAccessCodes=guarded(saveBothAccessCodes);
+window.changeTeacherAccessCode=guarded(changeTeacherAccessCode);
+window.changeLearnerAccessCode=guarded(changeLearnerAccessCode);
+window.changeFounderAccessCode=guarded(changeFounderAccessCode);
+window.saveLocks=guarded(saveLocks);
+window.lockAllUsers=guarded(lockAllUsers);
+window.unlockAllUsers=guarded(unlockAllUsers);
+window.signOutCurrentUser=guarded(signOutCurrentUser);
 </script>
 <script>
-window.addEventListener('load',async()=>{
+let bootInProgress=false;
+async function bootApp(){
+  if(bootInProgress) return;
+  bootInProgress=true;
   hideDashboards();
-  // SECURITY DEFAULT: the setup screen must be shown ONLY when we
+  document.body.classList.add('fb-loading');
+  document.getElementById('noNetworkPanel').style.display='none';
+
+  // STEP 1: wait for Firebase itself to be ready. A slow connection here
+  // is NOT the same thing as "no network" — the device may well be online
+  // and just still downloading the SDK (see fb-boot-status banner). Give
+  // it a generous window before treating it as unreachable, and let people
+  // retry without a full page reload.
+  try{
+    await ensureFirebaseReady(30000);
+  }catch(err){
+    document.body.classList.remove('fb-loading');
+    document.getElementById('noNetworkPanel').style.display='block';
+    bootInProgress=false;
+    return;
+  }
+
+  // STEP 2: SECURITY DEFAULT — the setup screen must be shown ONLY when we
   // positively confirm, via a successful read from Firebase, that the
   // system is unconfigured. If that read fails for ANY reason (no network,
   // Firebase unreachable, etc.), we never guess — we show a plain "No
@@ -1070,8 +1292,11 @@ window.addEventListener('load',async()=>{
     }
   }
 
+  document.body.classList.remove('fb-loading');
+
   if(configured===null){
     document.getElementById('noNetworkPanel').style.display='block';
+    bootInProgress=false;
     return;
   }else if(configured){
     document.getElementById('dashboardChoice').style.display='block';
@@ -1085,7 +1310,10 @@ window.addEventListener('load',async()=>{
       if(panel) panel.dataset.authenticated='false';
     }
   });
-});
+  bootInProgress=false;
+}
+window.retryBoot=bootApp;
+window.addEventListener('load',bootApp);
 </script>
 <script>
 if ('serviceWorker' in navigator) {
