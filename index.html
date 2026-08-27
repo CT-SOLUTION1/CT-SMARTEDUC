@@ -131,7 +131,7 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     <h2>⚙️ CT-SMART EDUC — First-Time Setup</h2>
     <p class="info">Create your own Founder, Teacher and shared Learner access codes. The system runs on Firebase Spark without Cloud Functions.</p>
     <div class="notice">
-      <b>Important:</b> Teacher and Learner codes must be at least 16 characters. They are securely hashed in the browser before being stored in Firebase.
+      <b>Important:</b> Teacher and Learner codes must be exactly 6 characters (Firebase Authentication requires passwords of at least 6 characters). They are securely hashed in the browser before being stored in Firebase.
     </div>
 
     <label>Founder Code</label>
@@ -140,17 +140,17 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     <label>Confirm Founder Code</label>
     <input id="setupFounderConfirm" type="password" autocomplete="new-password" placeholder="Confirm 4-character code" maxlength="4" minlength="4">
 
-    <label>Teacher Code (minimum 16 characters)</label>
-    <input id="setupTeacherCode" type="password" autocomplete="new-password" placeholder="4-character Teacher code" maxlength="4" minlength="4">
+    <label>Teacher Code (exactly 6 characters)</label>
+    <input id="setupTeacherCode" type="password" autocomplete="new-password" placeholder="6-character Teacher code" maxlength="6" minlength="6">
 
     <label>Confirm Teacher Code</label>
-    <input id="setupTeacherConfirm" type="password" autocomplete="new-password" placeholder="Confirm 4-character code" maxlength="4" minlength="4">
+    <input id="setupTeacherConfirm" type="password" autocomplete="new-password" placeholder="Confirm Teacher code" maxlength="6" minlength="6">
 
-    <label>Shared Learner Code (minimum 16 characters)</label>
-    <input id="setupLearnerCode" type="password" autocomplete="new-password" placeholder="Create one code for all learners">
+    <label>Shared Learner Code (exactly 6 characters)</label>
+    <input id="setupLearnerCode" type="password" autocomplete="new-password" placeholder="Create one code for all learners" maxlength="6" minlength="6">
 
     <label>Confirm Learner Code</label>
-    <input id="setupLearnerConfirm" type="password" autocomplete="new-password" placeholder="Confirm 4-character code" maxlength="4" minlength="4">
+    <input id="setupLearnerConfirm" type="password" autocomplete="new-password" placeholder="Confirm Learner code" maxlength="6" minlength="6">
 
     <button id="activateSystemBtn" class="green wide" type="button" onclick="initializeSchool()">Save & Activate CT-SMART EDUC</button>
     <p id="setupStatus" class="info" style="margin-top:12px;text-align:center"></p>
@@ -242,8 +242,8 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     <h3>🔐 Teacher Access Code</h3>
     <label>Current Teacher Access Code</label>
     <input id="currentTeacherCode" type="text" readonly>
-    <label>New Teacher Access Code (minimum 16 characters)</label>
-    <input id="newTeacherCode" type="password" placeholder="Enter exactly 4 characters" maxlength="4" minlength="4">
+    <label>New Teacher Access Code (exactly 6 characters)</label>
+    <input id="newTeacherCode" type="password" placeholder="6 characters" maxlength="6" minlength="6">
     <button id="saveBothAccessCodes" class="green wide" type="button" onclick="saveBothAccessCodes()">Save Teacher + Learner Codes Securely</button>
 
     <button class="blue wide" onclick="changeTeacherAccessCode()">Change Teacher Access Code</button>
@@ -253,8 +253,8 @@ footer{background:var(--navy);color:#dbe6f2;text-align:center;padding:25px;font-
     <h3>🎓 Learner Access Code</h3>
     <label>Current Learner Access Code</label>
     <input id="currentLearnerCode" type="text" readonly>
-    <label>New Learner Access Code (minimum 16 characters)</label>
-    <input id="newLearnerCode" type="password" placeholder="Enter a new learner code">
+    <label>New Learner Access Code (exactly 6 characters)</label>
+    <input id="newLearnerCode" type="password" placeholder="6 characters" maxlength="6" minlength="6">
     <button class="blue wide" onclick="changeLearnerAccessCode()">Change Learner Access Code</button>
 
     <hr style="border:0;border-top:1px solid var(--border);margin:24px 0">
@@ -458,7 +458,8 @@ const SYSTEM_ROLE_IDENTITIES = {
 };
 const ACCESS_PUBLIC_DOC=window.firebaseApi.doc(window.firebaseDb,'schoolAccess','public');
 const ACCESS_ADMIN_DOC=window.firebaseApi.doc(window.firebaseDb,'schoolAccess','admin');
-const MIN_SHARED_CODE_LENGTH=16;
+const MIN_SHARED_CODE_LENGTH=6;
+const MAX_SHARED_CODE_LENGTH=6;
 
 function normalizeCode(code){
   return (code||'').trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'');
@@ -470,8 +471,8 @@ function validateFounderCode(code){
 
 function validateSharedCode(code,label){
   const clean=normalizeCode(code);
-  if(clean.length<MIN_SHARED_CODE_LENGTH || clean.length>64){
-    throw new Error(`${label} must contain at least ${MIN_SHARED_CODE_LENGTH} characters for secure Spark-plan access.`);
+  if(clean.length!==MIN_SHARED_CODE_LENGTH){
+    throw new Error(`${label} must be exactly ${MIN_SHARED_CODE_LENGTH} characters.`);
   }
   return clean;
 }
